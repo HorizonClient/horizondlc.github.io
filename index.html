@@ -1,0 +1,170 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>  <meta charset="UTF-8" />  <meta name="viewport" content="width=device-width, initial-scale=1.0" />  <meta name="description" content="HorizonClient — красивый Minecraft клиент. 50+ скачиваний, 2 года в деле." />  <title>HorizonClient — красивый Minecraft клиент</title>  <link rel="preconnect" href="https://fonts.googleapis.com" />  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Unbounded:wght@400;700;900&display=swap" rel="stylesheet" />  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>  <!-- Кастомный курсор -->  <div class="cursor" id="cursor">
+</div>  <div class="cursor-follower" id="cursorFollower">
+</div>  <!-- Шум и зерно -->  <div class="noise" aria-hidden="true">
+</div>  <!-- Навигация -->  <header class="nav">    <a class="logo" href="#hero" data-magnetic>      <span class="logo-mark">◆</span>      <span class="logo-text">Horizon<span class="slash">/</span>Client</span>    </a>    <nav class="nav-links">      <a href="#admin" class="nav-admin" id="navAdmin" data-magnetic hidden>        <span class="nav-avatar admin-avatar">          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">            <path d="M12 2l2.4 5 5.6.8-4 3.9.9 5.5L12 14.8l-4.9 2.4.9-5.5-4-3.9 5.6-.8L12 2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>          </svg>        </span>        <span>Админ</span>      </a>      <a href="#profile" class="nav-profile" id="navProfile" data-magnetic hidden>        <span class="nav-avatar" id="navAvatar">?</span>        <span>Профиль</span>      </a>      <a href="#process" data-magnetic>Процесс</a>      <button type="button" class="nav-login" id="openLogin" data-magnetic>        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>        </svg>        <span>Войти</span>      </button>      <button type="button" class="nav-register" id="openRegister" data-magnetic>        <span>Зарегистрироваться</span>        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">          <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>        </svg>      </button>    </nav>    <button class="menu-btn" id="menuBtn" aria-label="Меню">      <span>
+</span>
+<span>
+</span>    </button>  </header>  <!-- HERO -->  <section class="hero" id="hero">    <div class="hero-bg">      <div class="orb orb-1">
+</div>      <div class="orb orb-2">
+</div>      <div class="orb orb-3">
+</div>      <div class="grid">
+</div>    </div>    <div class="hero-content">      <div class="badge" data-reveal>        <span class="dot">
+</span> Сейчас берём идеи в чит      </div>      <h1 class="hero-title" data-reveal>        <span class="line">
+<span class="word">Делаем</span>
+</span>        <span class="line">
+<span class="word gradient-text">Майнкрафт</span>
+</span>        <span class="line">
+<span class="word">красивее<span class="cursor-blink">_</span>
+</span>
+</span>      </h1>      <p class="hero-sub" data-reveal>        .      </p>      <div class="hero-actions" data-reveal>              </div>      <div class="hero-stats hero-stats-pair" data-reveal>        <div class="stat">
+<span class="stat-num" data-count="2-3">0</span>
+<span class="stat-label">года в деле</span>
+</div>        <div class="stat-divider">
+</div>        <div class="stat">
+<span class="stat-num" data-count="50+">0</span>
+<span class="stat-suffix"></span>
+<span class="stat-label">скачиваний</span>
+</div>      </div>    </div>    <a href="#process" class="scroll-hint" aria-label="Прокрутить вниз">      <span class="scroll-line">
+</span>      <span>scroll</span>    </a>  </section>  <!-- ADMIN PANEL -->  <section class="section admin-section" id="admin" hidden>    <div class="section-head">      <div class="eyebrow">
+<span class="num">★</span> Админ-панель</div>      <h2 class="section-title">Управление <span class="gradient-text">пользователями</span>
+</h2>      <p class="admin-sub">Все зарегистрированные демо-аккаунты на этом устройстве. Доступ только по паролю.</p>    </div>    <div class="admin-stats">      <div class="admin-stat">        <div class="admin-stat-num" id="adminTotal">0</div>        <div class="admin-stat-label">Всего аккаунтов</div>      </div>      <div class="admin-stat">        <div class="admin-stat-num" id="adminToday">0</div>        <div class="admin-stat-label">Зарегистрированы сегодня</div>      </div>      <div class="admin-stat">        <div class="admin-stat-num" id="adminLast">—</div>        <div class="admin-stat-label">Последний ник</div>      </div>    </div>
+
+    <!-- Блок: кто зарегистрировался сегодня -->
+    <div class="admin-today-card" id="adminTodayCard" hidden>
+      <div class="today-head">
+        <span class="today-icon">🆕</span>
+        <h3>Новые сегодня</h3>
+        <span class="today-count" id="adminTodayListCount">0</span>
+      </div>
+      <div class="today-list" id="adminTodayList"></div>
+    </div>
+
+    <div class="admin-card">      <div class="admin-glow">
+</div>      <div class="admin-toolbar">        <h3>Список пользователей</h3>        <div class="admin-actions">          <button type="button" class="btn btn-ghost" id="adminExport" data-magnetic>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Экспорт</span>
+          </button>
+          <button type="button" class="btn btn-ghost" id="adminImport" data-magnetic>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Импорт</span>
+          </button>
+          <input type="file" id="adminImportFile" accept=".json,application/json" style="display:none" />
+          <button type="button" class="btn btn-ghost" id="adminClear" data-magnetic>            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">              <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>            </svg>            <span>Очистить все</span>          </button>          <button type="button" class="btn btn-ghost" id="adminLock" data-magnetic>            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">              <rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="2"/>              <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>            </svg>            <span>Заблокировать</span>          </button>        </div>      </div>      <div class="admin-table-wrap">        <table class="admin-table">          <thead>            <tr>              <th>UID</th>              <th>Никнейм</th>              <th>Email</th>              <th>Дата</th>              <th>Статус</th>              <th>
+</th>            </tr>          </thead>          <tbody id="adminTbody">            <tr>
+<td colspan="6" class="admin-empty">Пока никого нет</td>
+</tr>          </tbody>        </table>      </div>    </div>  </section>  <!-- PROFILE -->  <section class="section profile" id="profile" hidden>    <div class="section-head">      <div class="eyebrow">
+<span class="num">00</span> Личный кабинет</div>      <h2 class="section-title">Привет, <span class="gradient-text" id="profileGreeting">друг</span> 👋</h2>    </div>    <div class="profile-card">      <div class="profile-glow">
+</div>      <div class="profile-top">        <div class="profile-avatar" id="profileAvatar">?</div>        <div class="profile-id">          <div class="profile-name" id="profileName">—</div>          <div class="profile-handle" id="profileHandle">@nickname</div>        </div>        <button type="button" class="btn btn-ghost" id="logoutBtn" data-magnetic>          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>          </svg>          <span>Выйти</span>        </button>      </div>      <div class="profile-grid">        <div class="profile-tile">          <div class="tile-label">UID</div>          <div class="tile-value" id="profileUid">—</div>        </div>        <div class="profile-tile">          <div class="tile-label">Email</div>          <div class="tile-value" id="profileEmail">—</div>        </div>        <div class="profile-tile">          <div class="tile-label">Дата регистрации</div>          <div class="tile-value" id="profileDate">—</div>        </div>        <div class="profile-tile">          <div class="tile-label">Статус</div>          <div class="tile-value">
+<span class="status-dot">
+</span> Активен</div>        </div>        <div class="profile-tile">          <div class="tile-label">Всего аккаунтов</div>          <div class="tile-value" id="profileCount">1</div>        </div>      </div>      <div class="profile-message">        <div class="msg-icon">✨</div>        <div>          <strong>Демо-режим.</strong> Этот профиль хранится только в твоём браузере (localStorage). Настоящий бэкенд можно подключить отдельно.        </div>      </div>    </div>  </section>  <!-- PROCESS -->  <section class="section process" id="process">    <div class="section-head">      <div class="eyebrow">
+<span class="num">03</span> Как мы работаем</div>      <h2 class="section-title">Процесс, который<br/>
+<span class="gradient-text">красивый клиент</span>
+</h2>    </div>    <div class="process-grid">
+      <div class="process-card" data-reveal>
+        <div class="process-icon">⚡</div>
+        <h3>Погружение в красивый клиент</h3>
+      </div>
+      <div class="process-card" data-reveal>
+        <div class="process-icon">◐</div>
+        <h3>Красивые визуалы</h3>
+      </div>
+      <div class="process-card" data-reveal>
+        <div class="process-icon">◆</div>
+        <h3>Ни одного бага в чите</h3>
+      </div>
+      <div class="process-card" data-reveal>
+        <div class="process-icon">✺</div>
+        <h3>Запуск — самый лёгкий</h3>
+        <p>Установка в пару кликов, интуитивные настройки. Запустил — и сразу играешь.</p>
+        <span class="process-time">∞ поддержка</span>
+      </div>
+    </div>  </section>  <!-- PLAYERS (community list) -->  <section class="section players-section" id="players">    <div class="section-head">      <div class="eyebrow">        <span class="num">04</span> Сообщество      </div>      <h2 class="section-title">Наши <span class="gradient-text">игроки</span>
+</h2>      <p class="players-sub">Все, кто зарегистрировался на сайте. Публичный список — только активные аккаунты.</p>    </div>    <div class="players-stats">      <div class="players-stat">        <div class="players-stat-num" id="playersCount">0</div>        <div class="players-stat-label">Всего игроков</div>      </div>      <div class="players-stat">        <div class="players-stat-num" id="playersNew">0</div>        <div class="players-stat-label">Новых сегодня</div>      </div>      <div class="players-stat">        <div class="players-stat-num" id="playersLatest">—</div>        <div class="players-stat-label">Последний ник</div>      </div>    </div>    <div class="players-grid" id="playersGrid" data-reveal>      <!-- сюда JS подставит карточки -->    </div>  </section>  <!-- BIG TEXT -->  <section class="bigtext">    <div class="bigtext-inner" data-reveal>      <span class="gradient-text">Давайте</span>      <span>сделаем</span>      <span class="gradient-text">что-то</span>      <span>красивое.</span>    </div>  </section>
+  <!-- DOWNLOAD -->
+  <section class="section download-section" id="download">
+    <div class="download-card" data-reveal>
+      <div class="download-glow"></div>
+      <div class="download-content">
+        <div class="download-eyebrow"><span class="dot"></span> Скоро в релизе</div>
+        <h2 class="download-title">Скачать <span class="gradient-text">HorizonClient</span></h2>
+        <p class="download-sub">Красивый Minecraft клиент. Без багов, с интуитивной установкой.</p>
+
+        <div class="download-meta download-meta-two" id="downloadMeta">
+          <div class="dl-tile"><span class="dl-label">Поддержка</span><span class="dl-value">1.21.4 – 1.21.11</span></div>
+          <div class="dl-tile"><span class="dl-label">Скачиваний</span><span class="dl-value">50+</span></div>
+        </div>
+
+        <div class="download-cta" id="downloadCta">
+          <!-- Сюда JS подставит либо кнопку, либо замок -->
+        </div>
+      </div>
+    </div>
+  </section>
+<!-- FOOTER -->  <footer class="footer">    <div class="footer-top">      <div class="footer-logo">        <span class="logo-mark">◆</span>        <span>Horizon<span class="slash">/</span>Client</span>      </div>      <div class="footer-cols">        <div class="footer-col">          <h4>Студия</h4>          <a href="#process">Процесс</a>        </div>        <div class="footer-col">          <h4>Соцсети</h4>          <a href="https://t.me/Horizon_Dlc" target="_blank" rel="noopener noreferrer">Telegram</a>          <a href="https://discord.gg/9Bt8NHmMns" target="_blank" rel="noopener noreferrer">Discord</a>        </div>        <div class="footer-col">          <h4>Юридическое</h4>          <a href="#">Политика конфиденциальности</a>          <a href="#">Договор оферты</a>        </div>      </div>    </div>    <div class="footer-bottom">      <span>© 2026 HorizonClient. Все права защищены.</span>      <span class="made-with">Сделано с <span class="heart">♥</span> и кофеином</span>    </div>  </footer>  <!-- Модалка регистрации -->  <div class="modal" id="registerModal" aria-hidden="true">    <div class="modal-backdrop" data-close-modal>
+</div>    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="regTitle">      <button class="modal-close" id="closeRegister" aria-label="Закрыть" data-close-modal>×</button>      <div class="modal-glow">
+</div>      <div class="modal-content">        <div class="modal-head">          <span class="modal-eyebrow">
+<span class="dot">
+</span> Регистрация</span>          <h3 id="regTitle">Создай <span class="gradient-text">аккаунт</span>
+</h3>          <p>Доступ к личному кабинету, истории проектов и закрытым материалам.</p>        </div>        <form class="modal-form" id="registerForm" novalidate>          <div class="field">            <input type="text" name="nickname" id="regNick" required minlength="2" maxlength="24" placeholder=" " autocomplete="username" />            <label>Никнейм</label>            <span class="field-hint">От 2 до 24 символов</span>            <span class="field-error" data-error="nickname">
+</span>          </div>          <div class="field">            <input type="email" name="email" id="regEmail" required placeholder=" " autocomplete="email" />            <label>Email</label>            <span class="field-error" data-error="email">
+</span>          </div>          <div class="field">            <input type="password" name="password" id="regPassword" required minlength="6" placeholder=" " autocomplete="new-password" />            <label>Пароль</label>            <span class="field-toggle" id="togglePass" aria-label="Показать пароль">              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" id="eyeIcon">                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>              </svg>            </span>            <span class="field-error" data-error="password">
+</span>          </div>          <label class="checkbox">            <input type="checkbox" id="regAgree" required />            <span class="checkbox-mark">
+</span>            <span class="checkbox-text">Согласен с <a href="#">политикой конфиденциальности</a>
+</span>          </label>          <button type="submit" class="btn btn-primary btn-large btn-block" data-magnetic>            <span>Создать аккаунт</span>            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">              <path d="M5 12h14M13 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>            </svg>          </button>          <div class="modal-foot">            Уже есть аккаунт? <a href="#" data-switch-login>Войти</a>          </div>        </form>      </div>    </div>  </div>
+  <!-- Модалка входа -->
+  <div class="modal" id="loginModal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-login></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <button class="modal-close" id="closeLogin" aria-label="Закрыть" data-close-login>×</button>
+      <div class="modal-glow"></div>
+      <div class="modal-content">
+        <div class="modal-head">
+          <span class="modal-eyebrow"><span class="dot" style="background: var(--accent-3); box-shadow: 0 0 8px var(--accent-3);"></span> Вход в аккаунт</span>
+          <h3 id="loginTitle">С возвращением, <span class="gradient-text">друг</span></h3>
+          <p>Введи email и пароль, чтобы войти в свой аккаунт.</p>
+        </div>
+
+        <form class="modal-form" id="loginForm" novalidate>
+          <div class="field">
+            <input type="email" name="loginEmail" id="loginEmailInput" required placeholder=" " autocomplete="email" />
+            <label>Email</label>
+            <span class="field-error" data-error="loginEmail"></span>
+          </div>
+
+          <div class="field">
+            <input type="password" name="loginPassword" id="loginPasswordInput" required placeholder=" " autocomplete="current-password" />
+            <label>Пароль</label>
+            <span class="field-error" data-error="loginPassword"></span>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-large btn-block" data-magnetic>
+            <span>Войти</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M5 12h14M13 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+
+          <div class="modal-foot">
+            Ещё нет аккаунта? <a href="#" data-switch-register>Зарегистрироваться</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <!-- Модалка админ-пароля -->  <div class="modal" id="adminModal" aria-hidden="true">    <div class="modal-backdrop" data-close-admin>
+</div>    <div class="modal-card modal-card-small" role="dialog" aria-modal="true" aria-labelledby="adminTitle">      <button class="modal-close" id="closeAdmin" aria-label="Закрыть" data-close-admin>×</button>      <div class="modal-glow">
+</div>      <div class="modal-content">        <div class="modal-head">          <span class="modal-eyebrow">            <span class="dot" style="background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2);">
+</span>            Доступ ограничен          </span>          <h3 id="adminTitle">Введите пароль <span class="gradient-text">админа</span>
+</h3>          <p>Эта панель видна только администраторам.</p>        </div>        <form class="modal-form" id="adminLoginForm" novalidate>          <div class="field">            <input type="password" name="adminPassword" id="adminPasswordInput" required placeholder=" " autocomplete="off" />            <label>Пароль администратора</label>            <span class="field-error" data-error="adminPassword">
+</span>          </div>          <button type="submit" class="btn btn-primary btn-large btn-block" data-magnetic>            <span>Войти</span>            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">              <path d="M5 12h14M13 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>            </svg>          </button>                  </form>      </div>    </div>  </div>  <!-- Тост успеха -->  <div class="toast" id="successToast" role="status" aria-live="polite">    <span class="toast-icon">✓</span>    <span class="toast-text">Готово! Аккаунт создан (демо).</span>  </div>  <script src="script.js">
+</script>
+</body>
+</html>
