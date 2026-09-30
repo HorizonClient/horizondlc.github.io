@@ -1,312 +1,38 @@
 /* ============================================
-   NOVA//STUDIO — interactions
+   HORIZON CLIENT — ClickGUI-style interactions
+   (без регистрации/UID/админки)
    ============================================ */
 
 (() => {
   'use strict';
 
-  // ===== Хранилище =====
-  const USERS_KEY = 'horizon_users';
-  const BANNED_KEY = 'horizon_banned';
-  const ADMIN_SESSION = 'horizon_admin_session';
-  const THEME_KEY = 'horizon_theme';
-  const ADMIN_PASSWORD = 'fssgsdfgds';
-
-  // Чистим хвосты старой авторизации и UID, если они остались в браузере
-  ['horizon_login_users', 'horizon_uid_counter', 'horizon_current_user', 'horizon_user'].forEach((key) => {
-    try { localStorage.removeItem(key); } catch (_) {}
-  });
-
-  const getUsers = () => {
-    try { return JSON.parse(localStorage.getItem(USERS_KEY) || '[]'); } catch (_) { return []; }
+  // ===== Время в titlebar =====
+  const timeEl = document.getElementById('titlebarTime');
+  const updateTime = () => {
+    if (!timeEl) return;
+    const d = new Date();
+    timeEl.textContent = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   };
-  const setUsers = (list) => {
-    try { localStorage.setItem(USERS_KEY, JSON.stringify(list)); } catch (_) {}
-  };
-  const getBanned = () => {
-    try { return JSON.parse(localStorage.getItem(BANNED_KEY) || '[]'); } catch (_) { return []; }
-  };
-  const setBanned = (list) => {
-    try { localStorage.setItem(BANNED_KEY, JSON.stringify(list)); } catch (_) {}
-  };
-  const isBannedEmail = (email) => {
-    if (!email) return false;
-    return getBanned().some((e) => (e || '').toLowerCase() === email.toLowerCase());
-  };
+  updateTime();
+  setInterval(updateTime, 30000);
 
-  const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
+  // ===== HUD теперь — статичная картинка =====
 
-
-  const formatDate = (iso) => {
-    try {
-      const d = new Date(iso);
-      return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-    } catch (_) { return '—'; }
-  };
-
-  // ===== Файл для кнопки «Скачать клиент» (IndexedDB — основное хранилище, большие файлы) =====
-  const FILE_DB = 'horizon-files';
-  const FILE_STORE = 'downloads';
-  const CLIENT_FILE_KEY = 'client';
-  const LS_FILE_KEY = 'horizon_client_file';
-  // localStorage — только аварийный запасной путь; физический потолок ~5 МБ на весь origin
-  const LS_MAX = 4 * 1024 * 1024;
-
-  // Сколько браузер готов отдать под хранение (обычно ГБ, а не МБ)
-  const storageHeadroom = async () => {
-    try {
-      if (navigator.storage && navigator.storage.estimate) {
-        const est = await navigator.storage.estimate();
-        const quota = est.quota || 0;
-        const used = est.usage || 0;
-        if (quota > 0) return { quota, used, free: Math.max(0, quota - used) };
-      }
-    } catch (_) { /* нет API — вернём null */ }
-    return null;
-  };
-
-  const humanSize = (bytes) => {
-    const n = Number(bytes) || 0;
-    if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(1) + ' ГБ';
-    if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + ' МБ';
-    if (n >= 1024) return (n / 1024).toFixed(1) + ' КБ';
-    return n + ' Б';
-  };
-
-  const openFileDB = () => new Promise((resolve, reject) => {
-    if (!('indexedDB' in window)) { reject(new Error('IndexedDB недоступен в этом браузере')); return; }
-    const req = indexedDB.open(FILE_DB, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(FILE_STORE)) db.createObjectStore(FILE_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error('Не удалось открыть хранилище файлов'));
-    req.onblocked = () => reject(new Error('Хранилище файлов заблокировано другой вкладкой'));
-  });
-
-  const fileDBRun = (mode, key, value) => new Promise((resolve, reject) => {
-    openFileDB().then((db) => {
-      const tx = db.transaction(FILE_STORE, mode);
-      const store = tx.objectStore(FILE_STORE);
-      const req = mode === 'readwrite'
-        ? (value === undefined ? store.delete(key) : store.put(value, key))
-        : store.get(key);
-      let out = null;
-      req.onsuccess = () => { out = req.result; };
-      tx.oncomplete = () => { db.close(); resolve(out); };
-      tx.onerror = () => { db.close(); reject(tx.error || new Error('Ошибка хранилища файлов')); };
-      tx.onabort = () => { db.close(); reject(tx.error || new Error('Операция отменена — не хватило места')); };
-    }).catch(reject);
-  });
-
-  const fileDBPut = (key, value) => fileDBRun('readwrite', key, value);
-  const fileDBGet = (key) => fileDBRun('readonly', key);
-  const fileDBDel = (key) => fileDBRun('readwrite', key, undefined);
-
-  const blobToDataURL = (blob) => new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result);
-    fr.onerror = () => reject(fr.error || new Error('Не удалось прочитать файл'));
-    fr.readAsDataURL(blob);
-  });
-
-  const dataURLToBlob = (dataUrl) => {
-    const comma = dataUrl.indexOf(',');
-    const meta = dataUrl.slice(0, comma);
-    const mime = (meta.match(/^data:([^;]+)/) || [])[1] || 'application/octet-stream';
-    const bin = atob(dataUrl.slice(comma + 1));
-    const arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) arr[i] = bin.charCodeAt(i);
-    return new Blob([arr], { type: mime });
-  };
-
-  const isQuotaError = (err) => {
-    if (!err) return false;
-    if (err.name === 'QuotaExceededError') return true;
-    return /quota|not enough|store|abort/i.test(err.message || '');
-  };
-
-  const saveClientFile = async (record) => {
-    // Заранее проверяем, влезет ли файл в отведённое место
-    const head = await storageHeadroom();
-    if (head && record.size > head.free) {
-      throw new Error(
-        `Файл ${humanSize(record.size)} не помещается: свободно ${humanSize(head.free)} из ${humanSize(head.quota)}.`
-      );
-    }
-
-    // Старый файл удаляем, чтобы не держать два файла одновременно
-    try { await fileDBDel(CLIENT_FILE_KEY); } catch (_) { /* нечего удалять */ }
-
-    try {
-      await fileDBPut(CLIENT_FILE_KEY, record);
-      return;
-    } catch (idbErr) {
-      // Аварийный путь: localStorage + base64, физический потолок ~5 МБ
-      if (record.size > LS_MAX) {
-        if (isQuotaError(idbErr)) {
-          throw new Error('В браузере закончилось место под файл. Удалите старый файл или освободите место.');
-        }
-        throw new Error((idbErr && idbErr.message) || 'Не удалось сохранить файл');
-      }
-      const dataUrl = await blobToDataURL(record.data);
-      const meta = { name: record.name, type: record.type, size: record.size, uploadedAt: record.uploadedAt };
-      localStorage.setItem(LS_FILE_KEY, JSON.stringify({ ...meta, dataUrl }));
-    }
-  };
-
-  const loadClientFile = async () => {
-    try {
-      const rec = await fileDBGet(CLIENT_FILE_KEY);
-      if (rec && rec.data) return rec;
-    } catch (_) { /* ищем в localStorage */ }
-    try {
-      const raw = localStorage.getItem(LS_FILE_KEY);
-      if (!raw) return null;
-      const obj = JSON.parse(raw);
-      if (!obj || !obj.dataUrl) return null;
-      return { name: obj.name, type: obj.type, size: obj.size, uploadedAt: obj.uploadedAt, data: dataURLToBlob(obj.dataUrl) };
-    } catch (_) { return null; }
-  };
-
-  const deleteClientFile = async () => {
-    try { await fileDBDel(CLIENT_FILE_KEY); } catch (_) { /* пусто или недоступно */ }
-    try { localStorage.removeItem(LS_FILE_KEY); } catch (_) {}
-  };
-
-  // ===== Кастомный курсор =====
-  const cursor = document.getElementById('cursor');
-  const follower = document.getElementById('cursorFollower');
-  let cx = 0, cy = 0, fx = 0, fy = 0;
-
-  if (cursor && follower && matchMedia('(hover: hover)').matches) {
-    document.addEventListener('mousemove', (e) => {
-      cx = e.clientX; cy = e.clientY;
-      cursor.style.transform = `translate(${cx}px, ${cy}px) translate(-50%, -50%)`;
-    });
-
-    const tick = () => {
-      fx += (cx - fx) * 0.15;
-      fy += (cy - fy) * 0.15;
-      follower.style.transform = `translate(${fx}px, ${fy}px) translate(-50%, -50%)`;
-      requestAnimationFrame(tick);
-    };
-    tick();
-
-    document.querySelectorAll('a, button, [data-magnetic]').forEach((el) => {
-      el.addEventListener('mouseenter', () => follower.classList.add('is-hover'));
-      el.addEventListener('mouseleave', () => follower.classList.remove('is-hover'));
-    });
-  }
-
-  // ===== Magnetic-кнопки =====
-  document.querySelectorAll('[data-magnetic]').forEach((el) => {
-    const strength = 0.35;
-    el.addEventListener('mousemove', (e) => {
-      const r = el.getBoundingClientRect();
-      const x = e.clientX - r.left - r.width / 2;
-      const y = e.clientY - r.top - r.height / 2;
-      el.style.transform = `translate(${x * strength}px, ${y * strength}px)`;
-    });
-    el.addEventListener('mouseleave', () => {
-      el.style.transform = '';
-    });
-  });
-
-  // ===== Nav при скролле =====
-  const nav = document.querySelector('.nav');
-  window.addEventListener('scroll', () => {
-    nav.classList.toggle('scrolled', window.scrollY > 40);
-  }, { passive: true });
-
-  // ===== Мобильное меню =====
-  const menuBtn = document.getElementById('menuBtn');
-  const navLinks = document.querySelector('.nav-links');
-  if (menuBtn && navLinks) {
-    const closeMenu = () => {
-      navLinks.classList.remove('is-open');
-      menuBtn.classList.remove('is-open');
-      menuBtn.setAttribute('aria-expanded', 'false');
-    };
-    menuBtn.addEventListener('click', () => {
-      const open = navLinks.classList.toggle('is-open');
-      menuBtn.classList.toggle('is-open', open);
-      menuBtn.setAttribute('aria-expanded', String(open));
-    });
-    navLinks.querySelectorAll('a').forEach((a) => a.addEventListener('click', closeMenu));
-    document.addEventListener('click', (e) => {
-      if (!nav.contains(e.target)) closeMenu();
-    });
-  }
-
-  // ===== Переключатель темы =====
-  const root = document.documentElement;
-  const themeToggle = document.getElementById('themeToggle');
-
-  const getTheme = () => (root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
-
-  const setTheme = (theme) => {
-    root.setAttribute('data-theme', theme);
-    try { localStorage.setItem(THEME_KEY, theme); } catch (_) {}
-    if (themeToggle) {
-      themeToggle.setAttribute(
-        'aria-label',
-        theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'
-      );
-    }
-  };
-
-  setTheme(getTheme());
-  if (themeToggle) {
-    themeToggle.addEventListener('click', () => {
-      setTheme(getTheme() === 'dark' ? 'light' : 'dark');
-    });
-  }
-
-  // ===== Reveal-анимации =====
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach((entry, i) => {
-      if (entry.isIntersecting) {
-        setTimeout(() => entry.target.classList.add('is-visible'), i * 80);
-        io.unobserve(entry.target);
-      }
-    });
-  }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
-
-  document.querySelectorAll('[data-reveal]').forEach((el) => io.observe(el));
-
-  // ===== Параллакс для орбов =====
-  const orbs = document.querySelectorAll('.orb');
-  window.addEventListener('mousemove', (e) => {
-    const x = (e.clientX / window.innerWidth - 0.5) * 2;
-    const y = (e.clientY / window.innerHeight - 0.5) * 2;
-    orbs.forEach((orb, i) => {
-      const k = (i + 1) * 12;
-      orb.style.translate = `${x * k}px ${y * k}px`;
-    });
-  });
-
-  // ===== Счётчики =====
+  // ===== Счётчики в hero =====
   const counters = document.querySelectorAll('[data-count]');
   const cio = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
       if (!entry.isIntersecting) return;
       const el = entry.target;
-      // data-count может содержать суффикс: "50+" или "2-3"
-      const [, num, suffix] = el.dataset.count.match(/^(\d+)(.*)$/) || [];
-      if (num === undefined) { cio.unobserve(el); return; }
-      const target = parseInt(num, 10);
-      const dur = 1600;
+      const target = parseInt(el.dataset.count, 10);
+      const dur = 1500;
       const start = performance.now();
       const animate = (now) => {
         const t = Math.min((now - start) / dur, 1);
         const eased = 1 - Math.pow(1 - t, 3);
-        el.textContent = Math.floor(target * eased) + suffix;
+        el.textContent = Math.floor(target * eased);
         if (t < 1) requestAnimationFrame(animate);
-        else el.textContent = target + suffix;
+        else el.textContent = target;
       };
       requestAnimationFrame(animate);
       cio.unobserve(el);
@@ -314,509 +40,518 @@
   }, { threshold: 0.5 });
   counters.forEach((c) => cio.observe(c));
 
-  // ===== 3D-наклон для process-карточек =====
-  document.querySelectorAll('.process-card').forEach((card) => {
-    card.addEventListener('mousemove', (e) => {
-      const r = card.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width - 0.5;
-      const y = (e.clientY - r.top) / r.height - 0.5;
-      card.style.transform = `translateY(-6px) perspective(800px) rotateY(${x * 6}deg) rotateX(${-y * 6}deg)`;
-    });
-    card.addEventListener('mouseleave', () => {
-      card.style.transform = '';
-    });
-  });
-
-  // ===== Плавный скролл по якорям =====
-  document.querySelectorAll('a[href^="#"]').forEach((a) => {
-    a.addEventListener('click', (e) => {
-      const href = a.getAttribute('href');
-      if (href.length > 1) {
-        const target = document.querySelector(href);
-        if (target) {
-          e.preventDefault();
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+  // ===== Reveal =====
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((entry, i) => {
+      if (entry.isIntersecting) {
+        setTimeout(() => entry.target.classList.add('is-visible'), i * 60);
+        io.unobserve(entry.target);
       }
     });
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+  document.querySelectorAll('[data-reveal]').forEach((el) => io.observe(el));
+
+  // ===== Переключение табов =====
+  document.querySelectorAll('.titlebar-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      document.querySelectorAll('.titlebar-tab').forEach((t) => t.classList.toggle('is-active', t === tab));
+      document.querySelectorAll('.tab-panel').forEach((p) => {
+        p.classList.toggle('is-active', p.dataset.panel === target);
+      });
+    });
   });
 
-  // ===== Тост =====
-  const toast = document.getElementById('successToast');
-  const showToast = (text, ms = 2600) => {
-    if (!toast) return;
-    toast.querySelector('.toast-text').textContent = text;
-    toast.classList.add('is-visible');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => toast.classList.remove('is-visible'), ms);
+  // ===== Модули =====
+  const MODULES = {
+    Combat: [
+      { name: 'Aura', key: 'R', enabled: false, settings: [
+        { type: 'range', label: 'Радиус', min: 3, max: 6, step: 0.1, value: 3.5 },
+        { type: 'range', label: 'CPS', min: 5, max: 20, step: 1, value: 12 },
+        { type: 'toggle', label: 'Только игроки', value: true },
+      ]},
+      { name: 'TriggerBot', key: '', enabled: false, settings: [
+        { type: 'range', label: 'Задержка (мс)', min: 0, max: 200, step: 10, value: 50 },
+        { type: 'toggle', label: 'Только меч', value: false },
+      ]},
+      { name: 'AutoSwap', key: '', enabled: false },
+      { name: 'ShiftTap', key: '', enabled: false, settings: [
+        { type: 'range', label: 'Тайминг (мс)', min: 50, max: 300, step: 10, value: 150 },
+      ]},
+      { name: 'Projective Helper', key: '', enabled: true, settings: [
+        { type: 'toggle', label: 'Показывать траекторию', value: true },
+        { type: 'color', label: 'Цвет линии', value: '#ff5aac' },
+      ]},
+      { name: 'ElytraTarget', key: '', enabled: false, settings: [
+        { type: 'range', label: 'Дистанция', min: 10, max: 100, step: 5, value: 30 },
+        { type: 'toggle', label: 'Авто-выстрел', value: false },
+      ]},
+    ],
+    Render: [
+      { name: 'FireWorkEsp', enabled: false, settings: [{ type: 'toggle', label: 'Active', value: false }] },
+      { name: 'Aspect Ratio', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'range', label: 'Соотношение', min: 0.5, max: 2.5, step: 0.05, value: 1.0 },
+      ]},
+      { name: 'Free Look', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'keybind', label: 'Свободный обзор', value: 'NUM' },
+      ]},
+      { name: 'Hud', enabled: true, settings: [
+        { type: 'toggle', label: 'Показывать FPS', value: true },
+        { type: 'toggle', label: 'Показывать BPS', value: true },
+        { type: 'toggle', label: 'Показывать координаты', value: false },
+        { type: 'color', label: 'Цвет текста', value: '#7c8cff' },
+      ]},
+      { name: 'Jump Circle', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'range', label: 'Max Size', min: 0.5, max: 3.0, step: 0.1, value: 2.0 },
+        { type: 'range', label: 'Speed', min: 100, max: 2000, step: 50, value: 1000 },
+        { type: 'color', label: 'Цвет', value: '#7c8cff' },
+      ]},
+      { name: 'ChinaHat', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'color', label: 'Color', value: '#ff5aac' },
+        { type: 'range', label: 'Transparency', min: 0.0, max: 1.0, step: 0.05, value: 0.5 },
+      ]},
+      { name: 'Target Esp', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Отображения таргета', value: 'Ghosts', options: ['Ghosts', '2D', 'Box', 'Circle', 'None'] },
+        { type: 'color', label: 'Цвет', value: '#17d673' },
+      ]},
+    ],
+    Player: [
+      { name: 'Anti AFK', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Режим', value: 'нет настроек', options: ['нет настроек', 'Таймер', 'Прыжки'] },
+        { type: 'range', label: 'Выполнять каждые (сек)', min: 5, max: 60, step: 1, value: 10.0 },
+      ]},
+      { name: 'LockSlot', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Заблокированные слоты', value: 'нет настроек', options: ['нет настроек', 'Слот 1', 'Слот 2', 'Слот 3', 'Слот 9'] },
+      ]},
+      { name: 'No Entity Trace', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'toggle', label: 'Без меча', value: false },
+      ]},
+      { name: 'No Push', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Игнорировать', value: 'Block', options: ['Block', 'Players', 'All', 'None'] },
+      ]},
+      { name: 'RightHelper', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'toggle', label: 'AutoAddFriends', value: false },
+        { type: 'range', label: 'RandomName', min: 0, max: 16, step: 1, value: 8.0 },
+        { type: 'toggle', label: 'UseWoodAxe', value: false },
+        { type: 'toggle', label: 'RenderSelection', value: false },
+        { type: 'range', label: 'AntiSpamDelay', min: 0, max: 2000, step: 50, value: 500 },
+      ]},
+      { name: 'Item Scroller', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'range', label: 'Задержка прокрутки (мс)', min: 0, max: 100, step: 1, value: 26.0 },
+      ]},
+      { name: 'No Delay', enabled: false, settings: [{ type: 'toggle', label: 'Active', value: false }] },
+    ],
+    Movement: [
+      { name: 'Auto Pilot', enabled: false, settings: [{ type: 'toggle', label: 'Active', value: false }] },
+      { name: 'Click Pearl', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Режим', value: 'Default', options: ['Default', 'Smart', 'Always'] },
+        { type: 'keybind', label: 'Кнопка', value: 'MOUSE 4' },
+      ]},
+      { name: 'Tab Parser', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Версия', value: '1.16.5', options: ['1.16.5', '1.18.2', '1.19.4', '1.20.1', '1.21.1'] },
+        { type: 'select', label: 'Донат префиксы', value: 'нет настроек', options: ['нет настроек', 'Default', 'HolyWorld', 'ReallyWorld'] },
+      ]},
+      { name: 'IRC', enabled: false, settings: [{ type: 'toggle', label: 'Active', value: false }] },
+      { name: 'AutoMessage', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'range', label: 'Интервал (сек)', min: 30, max: 600, step: 10, value: 120 },
+      ]},
+      { name: 'ChatUtil', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'toggle', label: 'Эмодзи', value: false },
+        { type: 'keybind', label: 'Клавиша корд-дропера', value: 'BACKSLASH' },
+      ]},
+      { name: 'Click Friend', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'keybind', label: 'Добавить друга', value: 'MOUSE MIDDLE' },
+      ]},
+      { name: 'Wind Jump', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'keybind', label: 'Заряд ветра', value: 'N/A' },
+      ]},
+      { name: 'Server Assist', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Тип сервера', value: 'ReallyWorld', options: ['ReallyWorld', 'HolyWorld', 'MineRex', 'Custom'] },
+      ]},
+    ],
+    Misc: [
+      { name: 'TpLoot', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Режим работы', value: 'Fly', options: ['Fly', 'Walk', 'Teleport'] },
+        { type: 'range', label: 'Скорость полёта', min: 0.5, max: 3.0, step: 0.1, value: 1.2 },
+      ]},
+      { name: 'Target Strafe', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Режим', value: 'Matrix', options: ['Matrix', 'Circle', 'Around'] },
+        { type: 'select', label: 'Точка для обхода', value: 'Circle', options: ['Circle', 'Square', 'Behind'] },
+        { type: 'range', label: 'Радиус', min: 1.0, max: 5.0, step: 0.1, value: 2.6 },
+        { type: 'range', label: 'Скорость', min: 0.1, max: 1.5, step: 0.05, value: 0.3 },
+        { type: 'select', label: 'Настройки', value: 'Auto Jump', options: ['Auto Jump', 'Manual', 'Disabled'] },
+      ]},
+      { name: 'No Fall Damage', enabled: false, settings: [{ type: 'toggle', label: 'Active', value: false }] },
+      { name: 'VClip', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Обход', value: 'Default', options: ['Default', 'Smart', 'Silent'] },
+        { type: 'range', label: 'Дистанция', min: 1, max: 10, step: 0.5, value: 3.0 },
+      ]},
+      { name: 'GrimGlade', enabled: false, settings: [{ type: 'toggle', label: 'Active', value: false }] },
+      { name: 'Strafe', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'select', label: 'Режим', value: 'Matrix', options: ['Matrix', 'Legit', 'BHop'] },
+        { type: 'range', label: 'Скорость', min: 0.1, max: 1.0, step: 0.02, value: 0.42 },
+      ]},
+      { name: 'Air Stuck', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'toggle', label: 'Свапать элитру на нагрудник', value: false },
+      ]},
+      { name: 'Elytra Motion', enabled: false, settings: [
+        { type: 'toggle', label: 'Active', value: false },
+        { type: 'range', label: 'Скорость', min: 0.5, max: 3.0, step: 0.1, value: 1.5 },
+        { type: 'range', label: 'Высота', min: 50, max: 320, step: 10, value: 200 },
+      ]},
+    ],
   };
 
-  // ===== Скачивание =====
-  let clientFile = null; // { name, type, size, uploadedAt, data: Blob }
+  const CATEGORY_ICONS = {
+    Combat: '⚔️', Render: '👁️', Player: '👤', Movement: '🏃', Misc: '🔧',
+  };
+
+  const STORAGE_KEY_MODS = 'horizon_modules';
+  let moduleStates = {};
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_MODS);
+    if (saved) moduleStates = JSON.parse(saved);
+  } catch (_) {}
+
+  const DEFAULT_ENABLED = ['Projective Helper', 'Hud'];
+  DEFAULT_ENABLED.forEach((n) => {
+    if (moduleStates[n] === undefined) moduleStates[n] = true;
+  });
+
+  const saveModules = () => {
+    try { localStorage.setItem(STORAGE_KEY_MODS, JSON.stringify(moduleStates)); } catch (_) {}
+  };
+
+  const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+
+  // ===== Рендер категорий =====
+  const cgCategories = document.getElementById('cgCategories');
+  const renderCategories = (active) => {
+    if (!cgCategories) return;
+    cgCategories.innerHTML = Object.keys(MODULES).map((cat) => {
+      const enabled = MODULES[cat].filter((m) => moduleStates[m.name]).length;
+      const total = MODULES[cat].length;
+      return `
+        <button type="button" class="cg-category ${cat === active ? 'is-active' : ''}" data-cat="${cat}">
+          <span class="cg-cat-icon">${CATEGORY_ICONS[cat] || '◆'}</span>
+          <span class="cg-cat-name">${cat}</span>
+          <span class="cg-cat-badge">${enabled}/${total}</span>
+        </button>
+      `;
+    }).join('');
+    cgCategories.querySelectorAll('.cg-category').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        currentCat = btn.dataset.cat;
+        renderCategories(currentCat);
+        renderModules(currentCat);
+      });
+    });
+  };
+
+  // ===== Рендер модулей =====
+  const cgModules = document.getElementById('cgModules');
+  const cgCatName = document.getElementById('cgCatName');
+  const cgCatCount = document.getElementById('cgCatCount');
+  const toast = document.getElementById('successToast');
+  let toastTimer = null;
+  function showToast(msg, ms = 2500) {
+    if (!toast) return;
+    const text = toast.querySelector('.toast-text');
+    if (text) text.textContent = msg;
+    toast.classList.add('is-visible');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('is-visible'), ms);
+  }
+
+  const renderSetting = (s, modName, idx) => {
+    if (s.type === 'toggle') {
+      return `
+        <div class="cg-setting">
+          <span class="cg-setting-label">${s.label}</span>
+          <div class="cg-toggle cg-setting-toggle ${s.value ? 'is-on' : ''}" data-setting="${modName}-${idx}" data-kind="toggle"></div>
+        </div>
+      `;
+    }
+    if (s.type === 'range') {
+      const display = s.step < 1 ? s.value.toFixed(2) : s.value;
+      return `
+        <div class="cg-setting">
+          <span class="cg-setting-label">${s.label}</span>
+          <div class="cg-setting-range">
+            <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.value}" data-setting="${modName}-${idx}" data-kind="range" />
+            <span class="cg-setting-value" data-value="${modName}-${idx}">${display}</span>
+          </div>
+        </div>
+      `;
+    }
+    if (s.type === 'color') {
+      return `
+        <div class="cg-setting">
+          <span class="cg-setting-label">${s.label}</span>
+          <input type="color" value="${s.value}" data-setting="${modName}-${idx}" data-kind="color" class="cg-setting-color" />
+        </div>
+      `;
+    }
+    if (s.type === 'select') {
+      return `
+        <div class="cg-setting">
+          <span class="cg-setting-label">${s.label}</span>
+          <select class="cg-setting-select" data-setting="${modName}-${idx}" data-kind="select">
+            ${s.options.map((o) => `<option value="${o}" ${o === s.value ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    }
+    if (s.type === 'keybind') {
+      return `
+        <div class="cg-setting">
+          <span class="cg-setting-label">${s.label}</span>
+          <button type="button" class="cg-keybind" data-setting="${modName}-${idx}" data-kind="keybind">${s.value}</button>
+        </div>
+      `;
+    }
+    return '';
+  };
+
+  let currentCat = 'Combat';
+  const renderModules = (cat) => {
+    if (!cgModules) return;
+    const list = MODULES[cat] || [];
+    if (cgCatName) cgCatName.textContent = cat;
+    if (cgCatCount) cgCatCount.textContent = `${list.length} модулей`;
+
+    const search = (document.getElementById('moduleSearch')?.value || '').toLowerCase();
+    const filtered = list.filter((m) => m.name.toLowerCase().includes(search));
+
+    if (!filtered.length) {
+      cgModules.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">Ничего не найдено</div>';
+      return;
+    }
+
+    cgModules.innerHTML = filtered.map((m) => {
+      const enabled = !!moduleStates[m.name];
+      const hasSettings = Array.isArray(m.settings) && m.settings.length > 0;
+      return `
+        <div class="cg-module ${enabled ? 'is-enabled' : ''}" data-mod="${m.name}">
+          <div class="cg-module-row">
+            <div class="cg-toggle" data-toggle="${m.name}" aria-label="Включить модуль"></div>
+            <div class="cg-mod-info">
+              <div class="cg-mod-name">${m.name}</div>
+            </div>
+            <div class="cg-mod-actions">
+              ${m.key ? `<span class="cg-mod-key">${m.key}</span>` : ''}
+              ${hasSettings ? `<button type="button" class="cg-mod-settings" aria-label="Настройки" data-settings="${m.name}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
+            </div>
+          </div>
+          ${hasSettings ? `
+            <div class="cg-module-settings" data-settings-panel="${m.name}" hidden>
+              ${m.settings.map((s, i) => renderSetting(s, m.name, i)).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+    cgModules.querySelectorAll('[data-toggle]').forEach((toggle) => {
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const name = toggle.dataset.toggle;
+        moduleStates[name] = !moduleStates[name];
+        saveModules();
+        renderModules(cat);
+        renderCategories(cat);
+        updateDashPreview();
+        showToast(moduleStates[name] ? `${name} включён` : `${name} выключен`, 1200);
+      });
+    });
+
+    cgModules.querySelectorAll('[data-settings]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.settings;
+        const panel = cgModules.querySelector(`[data-settings-panel="${name}"]`);
+        if (!panel) return;
+        panel.hidden = !panel.hidden;
+        btn.classList.toggle('is-active', !panel.hidden);
+      });
+    });
+
+    cgModules.querySelectorAll('.cg-module-settings').forEach((p) => {
+      p.addEventListener('click', (e) => e.stopPropagation());
+    });
+
+    document.querySelectorAll('[data-setting]').forEach((el) => {
+      const [modName, idxStr] = el.dataset.setting.split('-');
+      const idx = parseInt(idxStr, 10);
+      const mod = (MODULES[currentCat] || []).find((m) => m.name === modName);
+      if (!mod || !mod.settings || !mod.settings[idx]) return;
+      const s = mod.settings[idx];
+      const kind = el.dataset.kind;
+      if (kind === 'toggle') {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          s.value = !s.value;
+          el.classList.toggle('is-on', s.value);
+          saveModules();
+        });
+      } else if (kind === 'range') {
+        el.addEventListener('input', () => {
+          s.value = parseFloat(el.value);
+          const valueEl = document.querySelector(`[data-value="${modName}-${idx}"]`);
+          if (valueEl) valueEl.textContent = s.step < 1 ? s.value.toFixed(2) : s.value;
+          saveModules();
+        });
+      } else if (kind === 'color') {
+        el.addEventListener('input', () => { s.value = el.value; saveModules(); });
+      } else if (kind === 'select') {
+        el.addEventListener('change', () => { s.value = el.value; saveModules(); });
+      } else if (kind === 'keybind') {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const orig = el.textContent;
+          el.textContent = '...';
+          const handler = (ev) => {
+            ev.preventDefault();
+            s.value = ev.key === ' ' ? 'SPACE' : ev.key.toUpperCase();
+            el.textContent = s.value;
+            saveModules();
+            document.removeEventListener('keydown', handler);
+          };
+          document.addEventListener('keydown', handler);
+        });
+      }
+    });
+  };
+
+  renderCategories(currentCat);
+  renderModules(currentCat);
+
+  document.getElementById('cgEnableAll')?.addEventListener('click', () => {
+    (MODULES[currentCat] || []).forEach((m) => moduleStates[m.name] = true);
+    saveModules();
+    renderModules(currentCat);
+    renderCategories(currentCat);
+    updateDashPreview();
+  });
+  document.getElementById('cgDisableAll')?.addEventListener('click', () => {
+    (MODULES[currentCat] || []).forEach((m) => moduleStates[m.name] = false);
+    saveModules();
+    renderModules(currentCat);
+    renderCategories(currentCat);
+    updateDashPreview();
+  });
+  document.getElementById('moduleSearch')?.addEventListener('input', () => renderModules(currentCat));
+
+  // ===== Превью на дашборде =====
+  const dashModulesPreview = document.getElementById('dashModulesPreview');
+  const dashModulesCount = document.getElementById('dashModules');
+  const cgTotalEnabled = document.getElementById('cgTotalEnabled');
+  const cgTotalAll = document.getElementById('cgTotalAll');
+  const updateDashPreview = () => {
+    const enabled = [];
+    Object.keys(MODULES).forEach((cat) => {
+      MODULES[cat].forEach((m) => { if (moduleStates[m.name]) enabled.push(m.name); });
+    });
+    if (dashModulesCount) dashModulesCount.textContent = enabled.length;
+    if (cgTotalEnabled) cgTotalEnabled.textContent = enabled.length;
+    const totalAll = Object.values(MODULES).reduce((s, a) => s + a.length, 0);
+    if (cgTotalAll) cgTotalAll.textContent = totalAll;
+    if (dashModulesPreview) {
+      if (!enabled.length) {
+        dashModulesPreview.innerHTML = '<span style="color:var(--muted)">Модули не включены. Перейди во вкладку «Модули» →</span>';
+      } else {
+        dashModulesPreview.innerHTML = enabled.map((n) =>
+          `<span style="display:inline-block;margin:2px 4px;padding:3px 8px;background:var(--bg-3);border:1px solid var(--border-2);border-radius:4px;color:var(--accent)">${n}</span>`
+        ).join('');
+      }
+    }
+  };
+  updateDashPreview();
+
+  // ===== Players list (демо, без регистрации) =====
+  const DEMO_PLAYERS = [
+    { uid: '001', nickname: 'Ceticet11' },
+    { uid: '002', nickname: 'ShadowFox' },
+    { uid: '003', nickname: 'CrystalMage' },
+    { uid: '004', nickname: 'xXDragonXx' },
+    { uid: '005', nickname: 'NovaStrike' },
+    { uid: '006', nickname: 'Paster' },
+    { uid: '007', nickname: 'Kvasok' },
+    { uid: '008', nickname: 'SkyWord' },
+  ];
+
+  const renderPlayers = () => {
+    const grid = document.getElementById('playersGrid');
+    if (!grid) return;
+    const countEl = document.getElementById('playersCount');
+    const newEl = document.getElementById('playersNew');
+    const latestEl = document.getElementById('playersLatest');
+    if (countEl) countEl.textContent = DEMO_PLAYERS.length;
+    if (newEl) newEl.textContent = 3;
+    if (latestEl) latestEl.textContent = DEMO_PLAYERS[DEMO_PLAYERS.length - 1].nickname;
+    grid.innerHTML = DEMO_PLAYERS.map((u) => `
+      <div class="player-card">
+        <div class="player-avatar">${escapeHtml(u.nickname.charAt(0).toUpperCase())}</div>
+        <div class="player-info">
+          <div class="player-nick">${escapeHtml(u.nickname)}</div>
+          <span class="player-uid">#${escapeHtml(u.uid)}</span>
+        </div>
+      </div>
+    `).join('');
+  };
+  renderPlayers();
+
+  // ===== Download =====
+  const DOWNLOAD_FILE = 'Horizon.jar';
+
+  const startDownload = () => {
+    const a = document.createElement('a');
+    a.href = DOWNLOAD_FILE;
+    a.download = 'Horizon.jar';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    showToast('Скачивание Horizon.jar...');
+  };
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-download]')) startDownload();
+  });
 
   const downloadCta = document.getElementById('downloadCta');
   if (downloadCta) {
     downloadCta.innerHTML = `
-      <button type="button" class="btn-download" id="downloadBtn">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+      <button type="button" class="btn-client btn-client-primary" data-download>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Скачать клиент</span>
-        <span class="dl-suffix">Скоро</span>
       </button>
-      <div class="download-hint">Клиент появится в этом месте. Подпишись на Telegram, чтобы не пропустить релиз.</div>
     `;
-    const btn = document.getElementById('downloadBtn');
-    if (btn) {
-      btn.addEventListener('click', () => {
-        if (clientFile && clientFile.data) {
-          const url = URL.createObjectURL(clientFile.data);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = clientFile.name || 'HorizonClient';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
-          showToast('Скачивание запущено: ' + (clientFile.name || 'файл'), 3000);
-          return;
-        }
-        showToast('Релиз скоро. Подпишись на Telegram, чтобы узнать первым.', 3000);
-      });
-    }
   }
 
-  // Обновляет вид кнопки и подсказки в зависимости от наличия файла
-  const refreshDownloadUI = () => {
-    const suffix = downloadCta && downloadCta.querySelector('.dl-suffix');
-    const hint = downloadCta && downloadCta.querySelector('.download-hint');
-    if (suffix) suffix.hidden = !!clientFile;
-    if (hint) {
-      hint.textContent = clientFile
-        ? `${clientFile.name} · ${humanSize(clientFile.size)} · готов к скачиванию`
-        : 'Клиент появится в этом месте. Подпишись на Telegram, чтобы не пропустить релиз.';
-    }
-  };
-
-  // Обновляет карточку файла в админ-панели
-  const dlFileInput = document.getElementById('dlFileInput');
-  const dlFileEmpty = document.getElementById('dlFileEmpty');
-  const dlFileRow = document.getElementById('dlFileRow');
-  const dlFileName = document.getElementById('dlFileName');
-  const dlFileSize = document.getElementById('dlFileSize');
-  const dlFileDate = document.getElementById('dlFileDate');
-  const dlRemoveFile = document.getElementById('dlRemoveFile');
-
-  const dlFileLimit = document.getElementById('dlFileLimit');
-
-  const refreshFileCard = () => {
-    if (dlFileEmpty) dlFileEmpty.hidden = !!clientFile;
-    if (dlFileRow) dlFileRow.hidden = !clientFile;
-    if (dlRemoveFile) dlRemoveFile.hidden = !clientFile;
-    if (clientFile) {
-      if (dlFileName) dlFileName.textContent = clientFile.name;
-      if (dlFileSize) dlFileSize.textContent = humanSize(clientFile.size);
-      if (dlFileDate) dlFileDate.textContent = formatDate(new Date(clientFile.uploadedAt).toISOString());
-    }
-    refreshDownloadUI();
-
-    // Показываем реальный запас места под файл
-    if (dlFileLimit) {
-      storageHeadroom().then((head) => {
-        if (!head) {
-          dlFileLimit.textContent = 'Браузер не сообщает доступное место — ограничений нет.';
-        } else {
-          dlFileLimit.textContent = `Файл хранится в этом браузере. Доступно: ${humanSize(head.free)} из ${humanSize(head.quota)}.`;
-        }
-      }).catch(() => {
-        dlFileLimit.textContent = 'Файл хранится в этом браузере.';
-      });
-    }
-  };
-
-  // ===== Публичный список игроков =====
-  const playersGrid = document.getElementById('playersGrid');
-  const playersCountEl = document.getElementById('playersCount');
-  const playersNewEl = document.getElementById('playersNew');
-  const playersLatestEl = document.getElementById('playersLatest');
-
-  const renderPlayers = () => {
-    if (!playersGrid) return;
-    // Забаненных не показываем публично
-    const visible = getUsers().filter((u) => u && u.nickname && !isBannedEmail(u.email));
-    visible.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
-
-    const todayKey = new Date().toDateString();
-    const newToday = visible.filter((u) => u.createdAt && new Date(u.createdAt).toDateString() === todayKey).length;
-    if (playersCountEl) playersCountEl.textContent = visible.length;
-    if (playersNewEl) playersNewEl.textContent = newToday;
-    if (playersLatestEl) playersLatestEl.textContent = visible.length ? visible[visible.length - 1].nickname : '—';
-
-    if (!visible.length) {
-      playersGrid.innerHTML = '<div class="player-empty">Список игроков пока пуст.</div>';
-      return;
-    }
-
-    playersGrid.innerHTML = visible.map((u) => {
-      const initial = (u.nickname || '?').charAt(0).toUpperCase();
-      return `
-        <div class="player-card">
-          <div class="player-avatar">${escapeHtml(initial)}</div>
-          <div class="player-info">
-            <div class="player-nick">${escapeHtml(u.nickname)}</div>
-            <div class="player-since">с ${formatDate(u.createdAt)}</div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  };
-
-  // ===== Админ-панель =====
-  const adminModal = document.getElementById('adminModal');
-  const navAdmin = document.getElementById('navAdmin');
-  const adminSection = document.getElementById('admin');
-  const closeAdmin = document.getElementById('closeAdmin');
-  const adminLoginForm = document.getElementById('adminLoginForm');
-  const adminPasswordInput = document.getElementById('adminPasswordInput');
-  const adminTbody = document.getElementById('adminTbody');
-  const adminTotal = document.getElementById('adminTotal');
-  const adminToday = document.getElementById('adminToday');
-  const adminBanned = document.getElementById('adminBanned');
-  const adminClear = document.getElementById('adminClear');
-  const adminLock = document.getElementById('adminLock');
-  const adminExport = document.getElementById('adminExport');
-  const adminImport = document.getElementById('adminImport');
-  const adminImportFile = document.getElementById('adminImportFile');
-
-  const isAdminAuth = () => {
-    try { return localStorage.getItem(ADMIN_SESSION) === '1'; } catch (_) { return false; }
-  };
-  const setAdminAuth = (v) => {
-    try { v ? localStorage.setItem(ADMIN_SESSION, '1') : localStorage.removeItem(ADMIN_SESSION); } catch (_) {}
-  };
-
-  const refreshAdminUI = () => {
-    const authed = isAdminAuth();
-    // Ссылка в навигации всегда видна — это вход в админку через пароль
-    if (navAdmin) navAdmin.hidden = false;
-    if (adminSection) adminSection.hidden = !authed;
-    if (authed) setTimeout(renderAdminTable, 0);
-  };
-
-  const openAdminModal = () => {
-    if (!adminModal) return;
-    adminModal.classList.add('is-open');
-    adminModal.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('modal-open');
-    setTimeout(() => adminPasswordInput?.focus(), 200);
-  };
-  const closeAdminModal = () => {
-    if (!adminModal) return;
-    adminModal.classList.remove('is-open');
-    adminModal.setAttribute('aria-hidden', 'true');
-    document.body.classList.remove('modal-open');
-    adminLoginForm?.reset();
-    adminLoginForm?.querySelectorAll('.field').forEach((f) => f.classList.remove('has-error'));
-    adminLoginForm?.querySelectorAll('.field-error').forEach((e) => e.textContent = '');
-  };
-
-  if (navAdmin) {
-    navAdmin.addEventListener('click', (e) => {
-      if (!isAdminAuth()) {
-        e.preventDefault();
-        openAdminModal();
-      }
-    });
-  }
-  if (closeAdmin) closeAdmin.addEventListener('click', closeAdminModal);
-  adminModal?.querySelectorAll('[data-close-admin]').forEach((el) => {
-    el.addEventListener('click', closeAdminModal);
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && adminModal?.classList.contains('is-open')) closeAdminModal();
-  });
-
-  if (adminLoginForm) {
-    adminLoginForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const pwd = (new FormData(adminLoginForm).get('adminPassword') || '').toString();
-
-      const field = adminPasswordInput?.closest('.field');
-      const errEl = adminLoginForm.querySelector('[data-error="adminPassword"]');
-      if (field) field.classList.remove('has-error');
-      if (errEl) errEl.textContent = '';
-
-      if (pwd !== ADMIN_PASSWORD) {
-        if (field) field.classList.add('has-error');
-        if (errEl) errEl.textContent = 'Неверный пароль';
-        adminPasswordInput?.focus();
-        return;
-      }
-
-      setAdminAuth(true);
-      closeAdminModal();
-      refreshAdminUI();
-      renderAdminTable();
-      showToast('Доступ к админ-панели открыт');
-
-      setTimeout(() => {
-        const target = document.getElementById('admin');
-        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    });
-  }
-
-  // Очистить всех
-  if (adminClear) {
-    adminClear.addEventListener('click', () => {
-      if (!isAdminAuth()) return;
-      if (!confirm('Точно удалить всех пользователей? Действие необратимо.')) return;
-      setUsers([]);
-      setBanned([]);
-      renderAdminTable();
-      renderPlayers();
-      showToast('Список пользователей очищен');
-    });
-  }
-
-  // ===== Загрузка файла для кнопки «Скачать клиент» =====
-  const dlPickFile = document.getElementById('dlPickFile');
-
-  if (dlPickFile && dlFileInput) {
-    dlPickFile.addEventListener('click', () => dlFileInput.click());
-
-    dlFileInput.addEventListener('change', async () => {
-      const file = dlFileInput.files && dlFileInput.files[0];
-      if (!file) return;
-      const record = {
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        uploadedAt: Date.now(),
-        data: file,
-      };
-      const big = file.size > 8 * 1024 * 1024;
-      if (big) {
-        showToast(`Сохраняем ${humanSize(file.size)}… это может занять пару секунд`, 60000);
-      }
-      try {
-        await saveClientFile(record);
-        clientFile = record;
-        refreshFileCard();
-        showToast(`Файл «${file.name}» (${humanSize(file.size)}) готов к скачиванию`, 3600);
-      } catch (err) {
-        refreshFileCard();
-        showToast('Не удалось сохранить файл: ' + (err && err.message ? err.message : err), 6000);
-      } finally {
-        dlFileInput.value = '';
-      }
-    });
-  }
-
-  if (dlRemoveFile) {
-    dlRemoveFile.addEventListener('click', async () => {
-      if (!isAdminAuth()) return;
-      if (!confirm('Удалить файл? Кнопка «Скачать клиент» снова покажет заглушку.')) return;
-      await deleteClientFile();
-      clientFile = null;
-      refreshFileCard();
-      showToast('Файл удалён');
-    });
-  }
-
-  // Заблокировать — выйти из админки
-  if (adminLock) {
-    adminLock.addEventListener('click', () => {
-      setAdminAuth(false);
-      refreshAdminUI();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      showToast('Админ-панель заблокирована');
-    });
-  }
-
-  // ===== Экспорт / Импорт базы =====
-  if (adminExport) {
-    adminExport.addEventListener('click', () => {
-      if (!isAdminAuth()) return;
-      const users = getUsers();
-      const dump = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        users,
-        banned: getBanned(),
-      };
-      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `horizon-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showToast(`База сохранена (${users.length} юзеров)`);
-    });
-  }
-
-  if (adminImport && adminImportFile) {
-    adminImport.addEventListener('click', () => {
-      if (!isAdminAuth()) return;
-      adminImportFile.click();
-    });
-    adminImportFile.addEventListener('change', (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const dump = JSON.parse(ev.target.result);
-          if (!dump || !Array.isArray(dump.users)) throw new Error('Неверный формат файла');
-          const ok = confirm(
-            `Найдено ${dump.users.length} пользователей. ` +
-            `Текущая база (${getUsers().length} юзеров) будет ЗАМЕНЕНА. ` +
-            `\n\nПродолжить?`
-          );
-          if (!ok) { adminImportFile.value = ''; return; }
-          setUsers(dump.users);
-          if (Array.isArray(dump.banned)) setBanned(dump.banned);
-          renderAdminTable();
-          renderPlayers();
-          showToast(`База восстановлена: ${dump.users.length} юзеров`, 3000);
-        } catch (err) {
-          alert('Ошибка чтения файла: ' + err.message);
-        } finally {
-          adminImportFile.value = '';
-        }
-      };
-      reader.readAsText(file);
-    });
-  }
-
-  // ===== Таблица пользователей =====
-  function renderAdminTable() {
-    if (!adminTbody) return;
-    const users = getUsers();
-
-    const todayKey = new Date().toDateString();
-    const isToday = (u) => u.createdAt && new Date(u.createdAt).toDateString() === todayKey;
-    const todayUsers = users.filter(isToday);
-    const bannedCount = users.filter((u) => isBannedEmail(u.email)).length;
-
-    if (adminTotal) adminTotal.textContent = users.length;
-    if (adminToday) adminToday.textContent = todayUsers.length;
-    if (adminBanned) adminBanned.textContent = bannedCount;
-
-    // Блок «Новые сегодня»
-    const todayCard = document.getElementById('adminTodayCard');
-    const todayList = document.getElementById('adminTodayList');
-    const todayCountEl = document.getElementById('adminTodayListCount');
-    if (todayCard && todayList && todayCountEl) {
-      todayCountEl.textContent = todayUsers.length;
-      if (todayUsers.length === 0) {
-        todayCard.hidden = true;
-        todayList.innerHTML = '';
-      } else {
-        todayCard.hidden = false;
-        todayList.innerHTML = todayUsers
-          .slice()
-          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-          .map((u) => {
-            const initial = (u.nickname || '?').charAt(0).toUpperCase();
-            const time = new Date(u.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-            return `
-              <div class="today-row">
-                <span class="today-avatar">${escapeHtml(initial)}</span>
-                <div class="today-info">
-                  <div class="today-nick">${escapeHtml(u.nickname || '—')}</div>
-                  <div class="today-email">${escapeHtml(u.email || '')}</div>
-                </div>
-                <span class="today-time">сегодня в ${time}</span>
-              </div>
-            `;
-          }).join('');
-      }
-    }
-
-    if (!users.length) {
-      adminTbody.innerHTML = '<tr><td colspan="5" class="admin-empty">Пока никого нет. Добавь игроков через импорт базы.</td></tr>';
-      return;
-    }
-
-    adminTbody.innerHTML = users.map((u, i) => {
-      const banned = isBannedEmail(u.email);
-      return `
-      <tr class="${banned ? 'is-banned' : ''}">
-        <td class="col-nick">${escapeHtml(u.nickname)}${banned ? ' <span class="banned-tag">бан</span>' : ''}</td>
-        <td class="col-email">${escapeHtml(u.email || '—')}</td>
-        <td class="col-date">${formatDate(u.createdAt)}</td>
-        <td>${banned
-          ? '<span class="admin-status admin-status-banned"><span class="dot"></span>Забанен</span>'
-          : '<span class="admin-status"><span class="dot"></span>Активен</span>'}</td>
-        <td class="col-actions">
-          <button class="btn-icon btn-icon-ban ${banned ? 'is-active' : ''}" data-ban-user="${i}" aria-label="${banned ? 'Разбанить' : 'Забанить'}" title="${banned ? 'Разбанить' : 'Забанить'}">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              ${banned
-                ? '<path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
-                : '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M5 5l14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}
-            </svg>
-          </button>
-          <button class="btn-icon" data-del-user="${i}" aria-label="Удалить" title="Удалить">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </td>
-      </tr>
-    `; }).join('');
-
-    // Удаление
-    adminTbody.querySelectorAll('[data-del-user]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.dataset.delUser, 10);
-        const u = users[idx];
-        if (!u) return;
-        if (!confirm(`Удалить пользователя "${u.nickname}"?`)) return;
-        users.splice(idx, 1);
-        setUsers(users);
-        if (u.email) {
-          setBanned(getBanned().filter((e) => (e || '').toLowerCase() !== u.email.toLowerCase()));
-        }
-        renderAdminTable();
-        renderPlayers();
-      });
-    });
-
-    // Бан / разбан
-    adminTbody.querySelectorAll('[data-ban-user]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.dataset.banUser, 10);
-        const u = users[idx];
-        if (!u || !u.email) return;
-        const lower = u.email.toLowerCase();
-        const list = getBanned();
-        const isBanned = list.some((e) => (e || '').toLowerCase() === lower);
-
-        if (isBanned) {
-          if (!confirm(`Разбанить "${u.nickname}"?`)) return;
-          setBanned(list.filter((e) => (e || '').toLowerCase() !== lower));
-          showToast(`«${u.nickname}» разбанен`);
-        } else {
-          if (!confirm(`Забанить "${u.nickname}" (${u.email})? Игрок пропадёт из публичного списка.`)) return;
-          setBanned([...list, u.email]);
-          showToast(`«${u.nickname}» забанен`);
-        }
-        renderAdminTable();
-        renderPlayers();
-      });
-    });
-  }
-
-  // Подтягиваем файл для скачивания (если загружали раньше в этом браузере)
-  loadClientFile().then((rec) => {
-    if (rec && rec.data) clientFile = rec;
-    refreshFileCard();
-  }).catch(() => refreshFileCard());
-
-  refreshAdminUI();
-  renderPlayers();
 })();
